@@ -1,7 +1,7 @@
 pipeline {
     agent {
         // Change this label to the exact one defined in your Jenkins aws-ec2-cloud AMI template
-        label 'aws-ec2-cloud' 
+        label 'ec2-dynamic-agent' 
     }
 
     environment {
