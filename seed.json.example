@@ -1,0 +1,12 @@
+{
+    "ec2": {
+        "instance_types": ["t3.micro", "t3.medium", "m5.large", "c5.xlarge"],
+        "regions": ["us-east-1", "eu-west-1", "ap-south-1"],
+        "os_list": ["Linux", "Windows"]
+    },
+    "rds": {
+        "instance_types": ["db.t3.micro", "db.t3.medium", "db.m5.large"],
+        "regions": ["us-east-1", "eu-west-1"],
+        "engines": ["MySQL", "PostgreSQL", "MariaDB"]
+    }
+}

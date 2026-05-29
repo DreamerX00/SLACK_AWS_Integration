@@ -1,0 +1,53 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# --- Virtual Environment ---
+.venv/
+venv/
+env/
+
+# --- Environment & Secrets ---
+.env
+!.env.example
+
+# --- IDE & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Project Artifacts ---
+*.xlsx
+*.xls
+!seed.json.example
+seed.json
+test_costs.xlsx
+
+# --- Deployment Artifacts ---
+package/
+deployment.zip
+deployment_package.zip
+*.zip
+
+# --- CLI Session Exports ---
+session-*.md
+
+# --- AI / Agent Artifacts ---
+.claude/
+.claude/
+
+# --- AWS Lambda / Build ---
+.cache/
+*.tfstate
+*.tfstate.backup
