@@ -1,7 +1,7 @@
 pipeline {
     agent {
         // Uses the EC2 agent template you configured
-        label 'aws-ec2-cloud' 
+        label 'ec2-dynamic-agent' 
     }
 
     environment {
