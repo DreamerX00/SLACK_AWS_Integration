@@ -1,14 +1,14 @@
 pipeline {
     agent {
-        // Change this label to the exact one defined in your Jenkins aws-ec2-cloud AMI template
-        label 'ec2-dynamic-agent' 
+        // Uses the EC2 agent template you configured
+        label 'aws-ec2-cloud' 
     }
 
     environment {
         LAMBDA_FUNCTION_NAME = 'SlackAwsCostBotRole'
         DEPLOYMENT_ZIP = 'deployment.zip'
         BUILD_DIR = 'build'
-        AWS_REGION = 'ap-south-1' // Extracted from your IAM policies
+        AWS_REGION = 'ap-south-1' 
     }
 
     stages {
@@ -18,7 +18,7 @@ pipeline {
                     sh """
                         echo "Running on EC2 Agent: \$(hostname)"
                         
-                        # 1. Install missing Ubuntu dependencies (pip and zip)
+                        # 1. Install missing Ubuntu dependencies
                         sudo apt-get update -y
                         sudo apt-get install -y python3-pip zip
                         
@@ -26,8 +26,8 @@ pipeline {
                         rm -rf ${BUILD_DIR} ${DEPLOYMENT_ZIP}
                         mkdir -p ${BUILD_DIR}
                         
-                        # 3. Install Python requirements (using pip3)
-                        pip3 install -r requirements.txt -t ${BUILD_DIR} --quiet
+                        # 3. Explicitly install ONLY the lightweight libraries (Ignore requirements.txt)
+                        pip3 install slack_bolt requests openpyxl -t ${BUILD_DIR} --quiet
                         
                         # 4. Copy source files
                         cp app.py pricing_logic.py main.py ${BUILD_DIR}/
