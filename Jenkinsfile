@@ -18,17 +18,21 @@ pipeline {
                     sh """
                         echo "Running on EC2 Agent: \$(hostname)"
                         
-                        # Clean up previous builds
+                        # 1. Install missing Ubuntu dependencies (pip and zip)
+                        sudo apt-get update -y
+                        sudo apt-get install -y python3-pip zip
+                        
+                        # 2. Clean up previous builds
                         rm -rf ${BUILD_DIR} ${DEPLOYMENT_ZIP}
                         mkdir -p ${BUILD_DIR}
                         
-                        # IMPORTANT: Ensure pandas is NOT in requirements.txt
-                        pip install -r requirements.txt -t ${BUILD_DIR} --quiet
+                        # 3. Install Python requirements (using pip3)
+                        pip3 install -r requirements.txt -t ${BUILD_DIR} --quiet
                         
-                        # Copy source files
+                        # 4. Copy source files
                         cp app.py pricing_logic.py main.py ${BUILD_DIR}/
                         
-                        # Zip the contents of the folder
+                        # 5. Zip the contents of the folder
                         cd ${BUILD_DIR} && zip -r ../${DEPLOYMENT_ZIP} . --quiet
                     """
                 }
