@@ -18,7 +18,17 @@ pipeline {
                     sh """
                         echo "Running on EC2 Agent: \$(hostname)"
                         
-                        # 1. Install missing Ubuntu dependencies
+                        # 1. Wait for other package managers to release locks and stop unattended-upgrades
+                        sudo systemctl stop unattended-upgrades || true
+                        echo "Waiting for dpkg/apt locks to be released..."
+                        for i in {1..30}; do
+                            if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+                                break
+                            fi
+                            echo "Lock held, waiting 5 seconds..."
+                            sleep 5
+                        done
+                        
                         sudo apt-get update -y
                         sudo apt-get install -y python3-pip zip
                         
