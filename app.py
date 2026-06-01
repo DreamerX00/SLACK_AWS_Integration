@@ -136,5 +136,23 @@ app.event("app_mention")(ack=_ack_within_3s, lazy=[_handle_file_upload])
 app.event("message")(ack=_ack_within_3s, lazy=[_handle_file_upload])
 
 def lambda_handler(event, context):
+    # Detect and immediately acknowledge Slack retries to avoid duplicate processing
+    headers = event.get("headers", {})
+    # Case-insensitive header lookup
+    headers_lower = {k.lower(): v for k, v in headers.items()}
+    if "x-slack-retry-num" in headers_lower:
+        retry_num = headers_lower["x-slack-retry-num"]
+        retry_reason = headers_lower.get("x-slack-retry-reason", "unknown")
+        logger.info(
+            "Received Slack retry (num: %s, reason: %s). Returning immediate 200 OK to prevent duplicate execution.",
+            retry_num,
+            retry_reason,
+        )
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": '{"ok": true, "message": "Ignored retry"}',
+        }
+
     slack_handler = SlackRequestHandler(app=app)
     return slack_handler.handle(event, context)
