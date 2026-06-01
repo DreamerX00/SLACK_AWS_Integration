@@ -1,123 +1,142 @@
-# AWS Cost Report By Type
+# AWS Cost Report Generator
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?logo=python)](https://python.org)
+[![AWS Pricing API](https://img.shields.io/badge/AWS-Pricing%20API-FF9900?logo=amazonaws)](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetProducts.html)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform: linux | windows](https://img.shields.io/badge/platform-linux%20%7C%20windows-lightgrey)](https://github.com/anomalyco/SLACK_AWS_Integration)
+[![CI: Jenkins](https://img.shields.io/badge/CI-Jenkins-D24939?logo=jenkins)](https://www.jenkins.io/)
 
 Fetches EC2 and RDS pricing from the **AWS Pricing API** and **Savings Plans API**, then generates a formatted Excel report comparing On-Demand, Reserved Instance, and Compute Savings Plan costs.
 
-Two interfaces are available:
-- **CLI** (`main.py`) — Interactive or seed-file-driven mode for local use.
-- **Slack Bot** (`app.py`) — Deployed to AWS Lambda behind API Gateway. Users upload an `.xlsx` file to a Slack channel and receive the cost report back in the thread.
+---
+
+## Features
+
+| Feature                        | Description |
+|-------------------------------|-------------|
+| **EC2 Pricing**               | On-Demand, Compute SP 1/3yr, Standard RI 1/3yr |
+| **RDS Pricing**               | On-Demand, Standard RI 1yr |
+| **Multiple OS/Engines**       | Linux, Windows, RHEL, SUSE — MySQL, PostgreSQL, MariaDB, Oracle, SQL Server |
+| **Region Support**            | 28 AWS regions |
+| **CLI Mode**                  | Interactive prompts or seed-file-driven |
+| **Slack Bot (Lambda)**        | Upload `.xlsx` to Slack, get report back in thread |
+| **Threaded Lookups**          | 10 concurrent workers for fast API calls |
+| **Auto-retry**                | Exponential backoff for throttled requests |
+| **Formatted Excel Output**    | Styled sheets, currency format, N/A highlighting |
+| **CI/CD**                     | Jenkins pipeline for automated Lambda deployment |
 
 ---
 
-## Table of Contents
+## Architecture
 
-- [Pricing Models](#pricing-models)
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Setup](#setup)
-- [Usage (CLI)](#usage-cli)
-- [Slack Bot (Lambda)](#slack-bot-lambda)
-- [IAM Policy](#iam-policy)
-- [Security](#security)
-- [License](#license)
+```mermaid
+flowchart TD
+    subgraph CLI["CLI Mode"]
+        A[User Input / seed.json] --> B[main.py]
+        B --> C[AWS Pricing API]
+        B --> D[AWS Savings Plans API]
+        B --> E[Excel Report]
+    end
 
----
+    subgraph SlackBot["Slack Bot (Lambda)"]
+        F[Slack User] -->|Upload .xlsx| G[Slack API]
+        G -->|Event POST| H[API Gateway]
+        H --> I[Lambda: app.py]
+        I -->|Download file| G
+        I --> J[pricing_logic.py]
+        J --> K[main.py core]
+        K --> C
+        K --> D
+        J --> L[Report .xlsx]
+        L -->|Upload| F
+    end
 
-## Pricing Models
+    subgraph Security["Security Boundary"]
+        M[Slack Signing Secret Verification]
+        N[SSRF URL Allowlist<br/>files.slack.com only]
+        O[Exception Sanitization]
+        P[Row Limit: 50 max]
+    end
 
-| Service | Model                               | Source API        |
-| ------- | ----------------------------------- | ----------------- |
-| EC2     | On-Demand                           | Pricing API       |
-| EC2     | Compute Savings Plan 1yr No Upfront | Savings Plans API |
-| EC2     | Compute Savings Plan 3yr No Upfront | Savings Plans API |
-| EC2     | Standard RI 1yr No Upfront          | Pricing API       |
-| EC2     | Standard RI 3yr No Upfront          | Pricing API       |
-| RDS     | On-Demand                           | Pricing API       |
-| RDS     | Standard RI 1yr No Upfront          | Pricing API       |
-
----
-
-## Project Structure
-
+    I --> M
+    I --> N
+    I --> O
+    I --> P
 ```
-.
-├── app.py                 # Slack bot Lambda handler (slack_bolt)
-├── main.py                # Core pricing logic (Pricing / SP API calls)
-├── pricing_logic.py       # Bridge: reads uploaded xlsx, calls main.py, writes report
-├── requirements.txt       # Python dependencies
-├── Jenkinsfile            # CI/CD pipeline for Lambda deployment
-├── seed.json.example      # Example seed file for the --seed flag
-├── .env.example           # Template for environment variables
-├── .gitignore
-└── README.md
-```
 
 ---
 
-## Prerequisites
+## Quick Start
 
-- **Python 3.10+**
-- **AWS credentials** with `pricing:GetProducts` and `savingsplans:DescribeSavingsPlansOfferingRates`
-- For the **Slack Bot**: a Slack App with appropriate bot token scopes
-
----
-
-## Setup
+<details open>
+<summary><strong>Linux / macOS</strong></summary>
 
 ```bash
+# One-click setup (detects & installs prerequisites)
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+
+# Or manually:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
 cp .env.example .env
-# Edit .env with your AWS credentials (and Slack tokens if using the bot)
+# Edit .env with your credentials
+python main.py
 ```
 
-Environment variables (see [`.env.example`](.env.example)):
+</details>
 
-| Variable              | Required For       | Description                                    |
-| --------------------- | ------------------ | ---------------------------------------------- |
-| `AWS_ACCESS_KEY_ID`   | CLI                | AWS access key (optional if using IAM role)    |
-| `AWS_SECRET_ACCESS_KEY`| CLI               | AWS secret key (optional if using IAM role)    |
-| `SLACK_BOT_TOKEN`     | Slack Bot          | Slack Bot token (`xoxb-...`)                   |
-| `SLACK_SIGNING_SECRET`| Slack Bot          | Slack App signing secret                       |
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
+
+```powershell
+# One-click setup
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\setup.ps1
+
+# Or manually:
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+# Edit .env with your credentials
+python main.py
+```
+
+</details>
 
 ---
 
-## Usage (CLI)
+## Environment Variables
 
-### Interactive mode
+See [`.env.example`](.env.example) for the template.
+
+| Variable | Required For | Description |
+|---|---|---|
+| `AWS_ACCESS_KEY_ID` | CLI | AWS access key (optional if using IAM role) |
+| `AWS_SECRET_ACCESS_KEY` | CLI | AWS secret key (optional if using IAM role) |
+| `AWS_SESSION_TOKEN` | CLI (optional) | Temporary STS credentials |
+| `SLACK_BOT_TOKEN` | Slack Bot | Slack Bot token (`xoxb-...`) |
+| `SLACK_SIGNING_SECRET` | Slack Bot | Slack App signing secret |
+
+---
+
+## CLI / API Reference
+
+### `python main.py`
+
+Run the pricing report generator in interactive mode.
 
 ```bash
 python main.py
 ```
 
-Type comma-separated values at each prompt:
+### `python main.py --seed <file.json>`
 
-```
---- EC2 Input ---
-Instance types: t3.micro,m5.large,c5.xlarge
-Regions: us-east-1,eu-west-1
-OS: Linux,Windows
+Run with predefined inputs from a JSON seed file.
 
---- RDS Input ---
-Instance types: db.t3.micro,db.m5.large
-Regions: us-east-1,eu-west-1
-Engines: MySQL,PostgreSQL,MariaDB
-```
-
-### Seed file mode
-
-```bash
-cp seed.json.example seed.json
-# Edit seed.json with your desired lists
-python main.py --seed seed.json
-```
-
-The seed file supports both explicit row definitions and cross-product lists:
-
+**Seed file schema:**
 ```json
 {
     "ec2": {
@@ -133,87 +152,53 @@ The seed file supports both explicit row definitions and cross-product lists:
 }
 ```
 
-### Output
+### Lambda Handler
 
-Reports are saved as `aws_cost_report_<timestamp>.xlsx` with styled sheets, currency formatting, and N/A highlighting.
+| Attribute | Value |
+|---|---|
+| **Handler** | `app.lambda_handler` |
+| **Runtime** | Python 3.10+ |
+| **Timeout** | 5+ minutes |
+| **Memory** | 512 MB |
+| **Trigger** | API Gateway HTTP API, `POST /slack/events` |
 
 ---
 
-## Slack Bot (Lambda)
+## Supported Pricing Models
 
-### Architecture
+| Service | Model | Source API |
+|---|---|---|
+| EC2 | On-Demand | Pricing API |
+| EC2 | Compute Savings Plan 1yr No Upfront | Savings Plans API |
+| EC2 | Compute Savings Plan 3yr No Upfront | Savings Plans API |
+| EC2 | Standard RI 1yr No Upfront | Pricing API |
+| EC2 | Standard RI 3yr No Upfront | Pricing API |
+| RDS | On-Demand | Pricing API |
+| RDS | Standard RI 1yr No Upfront | Pricing API |
 
-The Slack integration (`app.py`) runs on **AWS Lambda** behind **API Gateway**:
+---
 
-1. User uploads an `.xlsx` file to a Slack channel.
-2. Slack sends a `message` event to the API Gateway endpoint.
-3. Lambda acknowledges within 3 seconds (Lazy Listener pattern in `slack_bolt`).
-4. Lambda downloads the file to `/tmp/`, validates it (`.xlsx` format, ≤50 rows), and calls `generate_cost_report`.
-5. Once the report is generated, Lambda uploads the result back to the same Slack thread.
+## Input File Format
 
-### Slack App Setup
-
-1. Create a new app at https://api.slack.com/apps
-2. Under **OAuth & Permissions**, add these Bot Token Scopes:
-   - `chat:write` — post messages
-   - `files:read` — read uploaded files
-   - `channels:history` — read channel messages
-3. Install the app to your workspace and copy the **Bot Token** (`xoxb-...`).
-4. Under **App Credentials**, copy the **Signing Secret**.
-5. Enable **Events** and subscribe to `message.channels` and `app_mention`.
-6. Set the **Request URL** to your API Gateway endpoint (e.g. `https://abc123.execute-api.ap-south-1.amazonaws.com/prod/slack/events`).
-
-### Lambda Deployment
-
-```bash
-# Package
-pip install -r requirements.txt -t package/
-cp app.py pricing_logic.py main.py package/
-cd package && zip -r ../deployment.zip .
-cd ..
-
-# Upload to AWS
-aws lambda update-function-code \
-    --function-name SlackAwsCostCalculator \
-    --zip-file fileb://deployment.zip \
-    --region ap-south-1
-```
-
-| Setting               | Value                        |
-| --------------------- | ---------------------------- |
-| **Runtime**           | Python 3.13 (or 3.10+)       |
-| **Handler**           | `app.lambda_handler`         |
-| **Timeout**           | 5+ minutes (Pricing API)     |
-| **Memory**            | 512 MB                       |
-| **API Gateway**       | HTTP API, `POST /slack/events`|
-
-### Input File Format
-
-Upload an `.xlsx` file with one or both sheets:
+Upload an `.xlsx` file (max 50 rows) with one or both sheets:
 
 **Sheet: `EC2`**
-
-| instance_type | region     | os      |
-|---------------|------------|---------|
-| t3.micro      | us-east-1  | Linux   |
-| m5.large      | eu-west-1  | Windows |
-| r5.large      | ap-south-1 | RHEL    |
+| instance_type | region | os |
+|---|---|---|
+| t3.micro | us-east-1 | Linux |
+| m5.large | eu-west-1 | Windows |
 
 **Sheet: `RDS`**
-
-| instance_type   | region     | engine     |
-|-----------------|------------|------------|
-| db.t3.micro     | us-east-1  | MySQL      |
-| db.m5.large     | eu-west-1  | PostgreSQL |
-
-**Row limit:** Maximum 50 rows across all sheets (Lambda timeout guard).
+| instance_type | region | engine |
+|---|---|---|
+| db.t3.micro | us-east-1 | MySQL |
+| db.m5.large | eu-west-1 | PostgreSQL |
 
 ---
 
 ## IAM Policy
 
-### CLI Usage
-
+### CLI / Local
 ```json
 {
     "Version": "2012-10-17",
@@ -231,7 +216,6 @@ Upload an `.xlsx` file with one or both sheets:
 ```
 
 ### Lambda Execution Role
-
 ```json
 {
     "Version": "2012-10-17",
@@ -261,10 +245,76 @@ Upload an `.xlsx` file with one or both sheets:
 
 ## Security
 
-- **Credentials:** Never commit `.env` or `seed.json` (actual data). They are gitignored by default. Use `.env.example` and `seed.json.example` as templates.
-- **Slack tokens:** The bot token (`xoxb-...`) has `chat:write` and `files:read` scopes — restrict the Slack App to channels where it is needed.
-- **Lambda IAM:** The execution role grants read-only access to Pricing and Savings Plans APIs plus CloudWatch Logs. Do not attach broader policies.
-- **Jenkinsfile:** The CI/CD pipeline does not store secrets. Ensure the Jenkins agent has an IAM role with `lambda:UpdateFunctionCode` attached via instance profile.
+The following mitigations are in place:
+
+| Threat | Mitigation |
+|---|---|
+| **Hardcoded credentials** | `.env`, `.secret_key`, `seed.json` all gitignored. Template files (`.env.example`, `seed.json.example`) contain placeholders only. |
+| **SSRF** | `file_url` is validated against an allowlist of Slack CDN domains (`files.slack.com`, `slack-files.com`). Requests are HTTPS-only. |
+| **XSS in Slack messages** | Exception messages are sanitized — user data is never echoed back. Slack's `chat.postMessage` treats text as plaintext. |
+| **CSRF** | Slack's Signing Secret verification (`slack_bolt` middleware) ensures all events originate from Slack. |
+| **Command injection** | No `subprocess`, `os.system`, or `eval()` calls in the codebase. |
+| **SQL injection** | No database used. |
+| **Path traversal** | All file paths are hardcoded (`/tmp/input.xlsx`, `/tmp/completed_report.xlsx`). No user-supplied paths. |
+| **Insecure deserialization** | No `pickle`, `yaml.load`, or `eval()` used. JSON loaded with `json.load()` (safe). |
+| **Row limit** | Maximum 50 rows enforced to prevent Lambda timeout abuse. |
+| **Stale artifacts** | `package/`, `__pycache__`, `.xlsx` reports, `session-*.md` are gitignored and cleaned regularly. |
+| **Dependency CVEs** | See `requirements.txt` — all libraries are recent stable versions. Run `pip-audit` to check. |
+
+**Credential rotation:** If you believe AWS credentials have been exposed, immediately:
+1. Go to [IAM > Users > Security Credentials](https://console.aws.amazon.com/iamv2/home#/users)
+2. Deactivate the old access key
+3. Create a new access key
+4. Update your `.env` file
+
+---
+
+## Jenkins CI/CD
+
+The project includes a `Jenkinsfile` that automatically packages and deploys the Lambda function. The pipeline:
+1. Installs Python dependencies (`slack_bolt`, `requests`, `openpyxl`)
+2. Copies source files into a build directory
+3. Creates a deployment zip
+4. Calls `aws lambda update-function-code`
+
+**Agent requirements:** An EC2 instance profile with `lambda:UpdateFunctionCode` permission.
+
+---
+
+## Project Structure
+
+```
+.
+├── app.py                 # Slack bot Lambda handler (slack_bolt)
+├── main.py                # Core pricing logic (Pricing / SP API calls)
+├── pricing_logic.py       # Bridge: reads uploaded xlsx, calls main.py, writes report
+├── requirements.txt       # Python dependencies
+├── Jenkinsfile            # CI/CD pipeline for Lambda deployment
+├── seed.json.example      # Example seed file for --seed flag
+├── .env.example           # Template for environment variables
+├── .gitignore
+├── scripts/
+│   ├── setup.sh           # Linux/macOS one-click setup
+│   └── setup.ps1          # Windows PowerShell one-click setup
+└── README.md
+```
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feat/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Run `python -m pytest` (add tests for new functionality)
+5. Push to your branch (`git push origin feat/amazing-feature`)
+6. Open a Pull Request
+
+### Guidelines
+- Write Python 3.10+ type-annotated code
+- Keep functions pure and testable
+- Do not commit secrets or real credentials
+- Update documentation for any API changes
 
 ---
 

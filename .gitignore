@@ -17,6 +17,7 @@ env/
 # --- Environment & Secrets ---
 .env
 !.env.example
+.secret_key
 
 # --- IDE & Editors ---
 .vscode/

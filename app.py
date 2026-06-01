@@ -1,5 +1,6 @@
 import os
 import logging
+from urllib.parse import urlparse
 
 import requests
 import pandas as pd
@@ -20,6 +21,21 @@ app = App(
 )
 
 MAX_ROWS = 50
+ALLOWED_FILE_MIMETYPES = frozenset({
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+})
+SLACK_CDN_DOMAINS = frozenset({
+    "files.slack.com",
+    "slack-files.com",
+})
+
+
+def _is_slack_cdn_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        return parsed.hostname in SLACK_CDN_DOMAINS and parsed.scheme == "https"
+    except Exception:
+        return False
 
 
 def _ack_within_3s(body, ack):
@@ -50,14 +66,23 @@ def _handle_file_upload(body, client, logger):
         client.chat_postMessage(
             channel=channel,
             thread_ts=ts,
-            text="❌ Unsupported file format. Please upload a *.xlsx* file.",
+            text="Unsupported file format. Please upload an .xlsx file.",
+        )
+        return
+
+    if not _is_slack_cdn_url(file_url):
+        logger.warning("Blocked download from non-Slack URL: %s", file_url)
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=ts,
+            text="Invalid file source. Please upload the file directly to Slack.",
         )
         return
 
     client.chat_postMessage(
         channel=channel,
         thread_ts=ts,
-        text="Received your file! I'm checking the limits and calculating costs now... ⏳",
+        text="Received your file! I'm checking the limits and calculating costs now...",
     )
 
     input_path = "/tmp/input.xlsx"
@@ -67,6 +92,10 @@ def _handle_file_upload(body, client, logger):
         headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
         resp = requests.get(file_url, headers=headers, timeout=30)
         resp.raise_for_status()
+
+        content_type = resp.headers.get("Content-Type", "")
+        if content_type and content_type not in ALLOWED_FILE_MIMETYPES:
+            logger.warning("Unexpected Content-Type: %s", content_type)
 
         with open(input_path, "wb") as f:
             f.write(resp.content)
@@ -78,7 +107,7 @@ def _handle_file_upload(body, client, logger):
             client.chat_postMessage(
                 channel=channel,
                 thread_ts=ts,
-                text="❌ Uploaded file has no data rows.",
+                text="Uploaded file has no data rows.",
             )
             return
 
@@ -86,7 +115,7 @@ def _handle_file_upload(body, client, logger):
             client.chat_postMessage(
                 channel=channel,
                 thread_ts=ts,
-                text=f"🚨 Row Limit Exceeded! Max {MAX_ROWS} rows allowed (got {total_rows}).",
+                text=f"Row Limit Exceeded! Max {MAX_ROWS} rows allowed (got {total_rows}).",
             )
             return
 
@@ -97,7 +126,7 @@ def _handle_file_upload(body, client, logger):
         now = datetime.now(ist)
         filename_ts = now.strftime("%Y%m%d_%H%M%S")
         title_ts = now.strftime("%Y-%m-%d %H:%M:%S")
-        
+
         report_filename = f"aws_cost_report_{filename_ts}.xlsx"
         report_title = f"AWS Cost Report ({title_ts})"
 
@@ -107,28 +136,28 @@ def _handle_file_upload(body, client, logger):
             file=output_path,
             filename=report_filename,
             title=report_title,
-            initial_comment="✅ Cost report generated successfully!",
+            initial_comment="Cost report generated successfully!",
         )
     except ValueError as e:
         logger.warning("Bad input file: %s", e)
         client.chat_postMessage(
             channel=channel,
             thread_ts=ts,
-            text=f"❌ Invalid input file: {e}",
+            text="Invalid input file format. Ensure the file contains valid data.",
         )
     except requests.RequestException as e:
         logger.exception("Failed to download file from Slack")
         client.chat_postMessage(
             channel=channel,
             thread_ts=ts,
-            text=f"❌ Could not download the uploaded file: {e}",
+            text="Could not download the uploaded file. Please try again.",
         )
     except Exception as e:
         logger.exception("Failed to generate cost report")
         client.chat_postMessage(
             channel=channel,
             thread_ts=ts,
-            text=f"❌ An error occurred while generating the report: {e}",
+            text="An error occurred while generating the report.",
         )
 
 
@@ -136,9 +165,7 @@ app.event("app_mention")(ack=_ack_within_3s, lazy=[_handle_file_upload])
 app.event("message")(ack=_ack_within_3s, lazy=[_handle_file_upload])
 
 def lambda_handler(event, context):
-    # Detect and immediately acknowledge Slack retries to avoid duplicate processing
     headers = event.get("headers", {})
-    # Case-insensitive header lookup
     headers_lower = {k.lower(): v for k, v in headers.items()}
     if "x-slack-retry-num" in headers_lower:
         retry_num = headers_lower["x-slack-retry-num"]
