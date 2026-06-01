@@ -92,12 +92,21 @@ def _handle_file_upload(body, client, logger):
 
         generate_cost_report(input_path=input_path, output_path=output_path)
 
+        from datetime import datetime, timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(ist)
+        filename_ts = now.strftime("%Y%m%d_%H%M%S")
+        title_ts = now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        report_filename = f"aws_cost_report_{filename_ts}.xlsx"
+        report_title = f"AWS Cost Report ({title_ts})"
+
         client.files_upload_v2(
             channel=channel,
             thread_ts=ts,
             file=output_path,
-            filename="completed_report.xlsx",
-            title="AWS Cost Report",
+            filename=report_filename,
+            title=report_title,
             initial_comment="✅ Cost report generated successfully!",
         )
     except ValueError as e:
