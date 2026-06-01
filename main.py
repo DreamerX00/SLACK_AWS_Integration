@@ -10,9 +10,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3
 import pandas as pd
 from botocore.exceptions import ClientError, BotoCoreError
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 logging.basicConfig(
     level=logging.INFO,
