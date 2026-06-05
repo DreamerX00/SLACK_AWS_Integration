@@ -17,27 +17,48 @@ pipeline {
                 script {
                     sh """
                         echo "Running on EC2 Agent: \$(hostname)"
-                        
-                        # 1. Wait for other package managers to release locks and stop unattended-upgrades
-                        sudo systemctl stop unattended-upgrades || true
-                        echo "Waiting for dpkg/apt locks to be released..."
-                        for i in {1..30}; do
-                            if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
-                                break
+
+                        wait_for_apt_locks() {
+                            echo "Waiting for dpkg/apt locks to be released..."
+                            for i in \$(seq 1 60); do
+                                if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \\
+                                    && ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \\
+                                    && ! sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1 \\
+                                    && ! sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+                                    return 0
+                                fi
+
+                                echo "Lock held, waiting 5 seconds..."
+                                sleep 5
+                            done
+
+                            echo "Timed out waiting for apt/dpkg locks."
+                            return 1
+                        }
+
+                        ensure_system_packages() {
+                            if command -v pip3 >/dev/null 2>&1 && command -v zip >/dev/null 2>&1; then
+                                echo "pip3 and zip already installed; skipping apt-get."
+                                return 0
                             fi
-                            echo "Lock held, waiting 5 seconds..."
-                            sleep 5
-                        done
-                        
-                        sudo apt-get update -y
-                        sudo apt-get install -y python3-pip zip
+
+                            sudo systemctl stop unattended-upgrades apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer || true
+                            wait_for_apt_locks
+
+                            sudo apt-get update -y
+                            wait_for_apt_locks
+                            sudo apt-get install -y -o DPkg::Lock::Timeout=300 python3-pip zip
+                        }
+
+                        # 1. Ensure packaging tools exist before building the Lambda zip
+                        ensure_system_packages
                         
                         # 2. Clean up previous builds
                         rm -rf ${BUILD_DIR} ${DEPLOYMENT_ZIP}
                         mkdir -p ${BUILD_DIR}
                         
-                        # 3. Explicitly install ONLY the lightweight libraries (Ignore requirements.txt)
-                        pip3 install slack_bolt requests openpyxl -t ${BUILD_DIR} --quiet
+                        # 3. Install the Lambda runtime dependencies needed by app.py and pricing_logic.py
+                        python3 -m pip install pandas slack_bolt requests openpyxl -t ${BUILD_DIR} --quiet
                         
                         # 4. Copy source files
                         cp app.py pricing_logic.py main.py ${BUILD_DIR}/
