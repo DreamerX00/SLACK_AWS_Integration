@@ -52,3 +52,6 @@ session-*.md
 .cache/
 *.tfstate
 *.tfstate.backup
+secrets.json
+
+AWS_Setup.md
