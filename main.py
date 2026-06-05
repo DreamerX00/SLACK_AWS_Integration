@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import boto3
-import pandas as pd
+from openpyxl import Workbook
 from botocore.exceptions import ClientError, BotoCoreError
 try:
     from dotenv import load_dotenv
@@ -549,22 +549,47 @@ def write_excel_report(
     if not output_path:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = f"aws_cost_report_{ts}.xlsx"
-    df_ec2 = pd.DataFrame(ec2_rows) if ec2_rows else pd.DataFrame()
-    df_rds = pd.DataFrame(rds_rows) if rds_rows else pd.DataFrame()
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        if not df_ec2.empty:
-            df_ec2.to_excel(writer, sheet_name="EC2 Pricing", index=False)
-        if not df_rds.empty:
-            df_rds.to_excel(writer, sheet_name="RDS Pricing", index=False)
-        if df_ec2.empty and df_rds.empty:
-            pd.DataFrame({"Status": ["No data fetched. Check inputs and AWS credentials."]}).to_excel(
-                writer, sheet_name="Summary", index=False
-            )
+    workbook = Workbook()
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+
+    if ec2_rows:
+        _write_report_sheet(workbook, "EC2 Pricing", ec2_rows)
+    if rds_rows:
+        _write_report_sheet(workbook, "RDS Pricing", rds_rows)
+    if not ec2_rows and not rds_rows:
+        summary_sheet = workbook.create_sheet(title="Summary")
+        summary_sheet.append(["Status"])
+        summary_sheet.append(["No data fetched. Check inputs and AWS credentials."])
+
+    workbook.save(output_path)
 
     _format_excel_sheets(output_path)
     log.info("Report saved to %s", output_path)
     return output_path
+
+
+def _write_report_sheet(workbook: Workbook, sheet_name: str, rows: List[Dict[str, Any]]) -> None:
+    worksheet = workbook.create_sheet(title=sheet_name)
+    columns = _get_sheet_columns(rows)
+    worksheet.append(columns)
+
+    for row in rows:
+        worksheet.append([row.get(column_name, "") for column_name in columns])
+
+
+def _get_sheet_columns(rows: List[Dict[str, Any]]) -> List[str]:
+    columns: List[str] = []
+    seen = set()
+
+    for row in rows:
+        for column_name in row.keys():
+            if column_name not in seen:
+                seen.add(column_name)
+                columns.append(column_name)
+
+    return columns
 
 
 def _format_excel_sheets(filepath: str) -> None:

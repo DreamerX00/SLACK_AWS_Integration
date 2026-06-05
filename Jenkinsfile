@@ -58,7 +58,7 @@ pipeline {
                         mkdir -p ${BUILD_DIR}
                         
                         # 3. Install the Lambda runtime dependencies needed by app.py and pricing_logic.py
-                        python3 -m pip install pandas slack_bolt requests openpyxl -t ${BUILD_DIR} --quiet
+                        python3 -m pip install slack_bolt requests openpyxl -t ${BUILD_DIR} --quiet
                         
                         # 4. Copy source files
                         cp app.py pricing_logic.py main.py ${BUILD_DIR}/

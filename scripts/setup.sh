@@ -138,7 +138,7 @@ if [ -f "$PIP_REQUIREMENTS" ]; then
     info "Dependencies installed from requirements.txt"
 else
     pip install --upgrade pip -q
-    pip install boto3 pandas openpyxl python-dotenv slack_bolt requests
+    pip install boto3 openpyxl python-dotenv slack_bolt requests
     info "No requirements.txt — installed core packages."
 fi
 

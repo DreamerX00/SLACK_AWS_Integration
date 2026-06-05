@@ -5,14 +5,12 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import requests
-import pandas as pd
 from slack_bolt import App
 from slack_bolt.adapter.aws_lambda import SlackRequestHandler
 
 from pricing_logic import (
-    REQUIRED_EC2_COLS,
-    REQUIRED_RDS_COLS,
     generate_cost_report,
+    inspect_input_workbook,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,20 +54,6 @@ def _ack_within_3s(body, ack):
     ack()
 
 
-def _count_valid_sheet_rows(df: pd.DataFrame | None, required_columns: set[str]) -> int:
-    if df is None:
-        return 0
-
-    lower_cols = {str(col).lower() for col in df.columns}
-    if not required_columns.issubset(lower_cols):
-        return 0
-
-    normalized_df = df.rename(columns=str.lower)
-    required_list = sorted(required_columns)
-    valid_mask = normalized_df[required_list].notna().all(axis=1)
-    return int(valid_mask.sum())
-
-
 def _download_excel(file_url: str, input_path: str):
     logger.info("Downloading file")
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
@@ -88,14 +72,14 @@ def _download_excel(file_url: str, input_path: str):
 
 def _validate_workbook(input_path: str) -> dict[str, int]:
     try:
-        sheets = pd.read_excel(input_path, sheet_name=None)
+        workbook_metrics = inspect_input_workbook(input_path)
     except Exception as exc:
         raise UserInputError(
             "Invalid input file format. Ensure the file contains valid data.",
             "Invalid file format",
         ) from exc
 
-    total_rows = sum(len(df) for df in sheets.values())
+    total_rows = workbook_metrics["total_rows"]
 
     if total_rows == 0:
         raise UserInputError("Uploaded file has no data rows.")
@@ -106,8 +90,8 @@ def _validate_workbook(input_path: str) -> dict[str, int]:
         )
 
     return {
-        "ec2_count": _count_valid_sheet_rows(sheets.get("EC2"), REQUIRED_EC2_COLS),
-        "rds_count": _count_valid_sheet_rows(sheets.get("RDS"), REQUIRED_RDS_COLS),
+        "ec2_count": workbook_metrics["ec2_count"],
+        "rds_count": workbook_metrics["rds_count"],
     }
 
 
