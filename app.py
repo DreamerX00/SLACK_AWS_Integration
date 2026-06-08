@@ -60,9 +60,24 @@ def _download_excel(file_url: str, input_path: str):
     response = requests.get(file_url, headers=headers, timeout=30)
     response.raise_for_status()
 
+    # Slack returns an HTML login/error page (HTTP 200, text/html) instead of the
+    # file bytes when the bot can't access the file — typically a missing
+    # `files:read` scope, the bot not being in the channel, or a bad/expired token.
+    # Detect that here so we surface an actionable error instead of writing the HTML
+    # page to disk and failing later with a misleading "Invalid file format".
     content_type = response.headers.get("Content-Type", "")
-    if content_type and content_type not in ALLOWED_FILE_MIMETYPES:
-        logger.warning("Unexpected Content-Type: %s", content_type)
+    if content_type and content_type.split(";")[0].strip() not in ALLOWED_FILE_MIMETYPES:
+        logger.warning(
+            "Slack did not return an Excel file (Content-Type: %s). "
+            "Check the bot's files:read scope and channel membership.",
+            content_type,
+        )
+        raise UserInputError(
+            "Could not download the file from Slack. The bot may lack permission "
+            "to read it — ensure it has the `files:read` scope and is a member of "
+            "the channel.",
+            "Slack file download failed (check bot files:read scope & channel access)",
+        )
 
     with open(input_path, "wb") as input_file:
         input_file.write(response.content)
