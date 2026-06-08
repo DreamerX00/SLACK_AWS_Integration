@@ -59,6 +59,40 @@ def parse_input_workbook(input_path: str) -> Dict[str, SheetData]:
         workbook.close()
 
 
+def _sheet_matches(sheet_name: str, sheet_data: SheetData, required_columns: set[str]) -> bool:
+    """A sheet is treated as EC2/RDS if it is named accordingly OR its columns match.
+
+    This makes the bot tolerant of workbooks where the data lives in a default-named
+    sheet (e.g. "Sheet1") instead of a sheet titled exactly "EC2"/"RDS".
+    """
+    return required_columns.issubset(sheet_data["columns"])
+
+
+def _classify_sheets(sheets: Dict[str, SheetData]) -> tuple[SheetData | None, SheetData | None]:
+    """Return (ec2_sheet_data, rds_sheet_data) detected by columns, with name as a tiebreaker."""
+    ec2_sheet: SheetData | None = None
+    rds_sheet: SheetData | None = None
+
+    for sheet_name, sheet_data in sheets.items():
+        name_upper = sheet_name.strip().upper()
+        is_ec2 = _sheet_matches(sheet_name, sheet_data, REQUIRED_EC2_COLS)
+        is_rds = _sheet_matches(sheet_name, sheet_data, REQUIRED_RDS_COLS)
+
+        # If a sheet's columns satisfy both (shouldn't normally happen), use the name to decide.
+        if is_ec2 and is_rds:
+            if name_upper == "RDS":
+                is_ec2 = False
+            else:
+                is_rds = False
+
+        if is_ec2 and ec2_sheet is None:
+            ec2_sheet = sheet_data
+        elif is_rds and rds_sheet is None:
+            rds_sheet = sheet_data
+
+    return ec2_sheet, rds_sheet
+
+
 def _count_valid_rows(sheet_data: SheetData | None, required_columns: set[str]) -> int:
     if not sheet_data:
         return 0
@@ -75,10 +109,11 @@ def _count_valid_rows(sheet_data: SheetData | None, required_columns: set[str]) 
 
 def inspect_input_workbook(input_path: str) -> Dict[str, int]:
     sheets = parse_input_workbook(input_path)
+    ec2_sheet, rds_sheet = _classify_sheets(sheets)
     return {
         "total_rows": sum(sheet_data["row_count"] for sheet_data in sheets.values()),
-        "ec2_count": _count_valid_rows(sheets.get("EC2"), REQUIRED_EC2_COLS),
-        "rds_count": _count_valid_rows(sheets.get("RDS"), REQUIRED_RDS_COLS),
+        "ec2_count": _count_valid_rows(ec2_sheet, REQUIRED_EC2_COLS),
+        "rds_count": _count_valid_rows(rds_sheet, REQUIRED_RDS_COLS),
     }
 
 
@@ -106,21 +141,22 @@ def _extract_service_tuples(
 
 def generate_cost_report(input_path: str, output_path: str) -> str:
     sheets = parse_input_workbook(input_path)
+    ec2_sheet, rds_sheet = _classify_sheets(sheets)
 
     ec2_tuples = []
     rds_tuples = []
 
-    if "EC2" in sheets:
+    if ec2_sheet is not None:
         ec2_tuples = _extract_service_tuples(
-            sheets["EC2"],
+            ec2_sheet,
             REQUIRED_EC2_COLS,
             ("instance_type", "region", "os"),
             "EC2",
         )
 
-    if "RDS" in sheets:
+    if rds_sheet is not None:
         rds_tuples = _extract_service_tuples(
-            sheets["RDS"],
+            rds_sheet,
             REQUIRED_RDS_COLS,
             ("instance_type", "region", "engine"),
             "RDS",
@@ -128,7 +164,8 @@ def generate_cost_report(input_path: str, output_path: str) -> str:
 
     if not ec2_tuples and not rds_tuples:
         raise ValueError(
-            "Input file must contain an 'EC2' sheet, an 'RDS' sheet, or both."
+            "Input file must contain EC2 columns (instance_type, region, os) "
+            "and/or RDS columns (instance_type, region, engine)."
         )
 
     pricing_client, sp_client = get_aws_clients()
